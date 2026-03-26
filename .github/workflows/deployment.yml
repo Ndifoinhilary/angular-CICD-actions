@@ -1,7 +1,14 @@
 name: Deploy project
 on:
- pull_request:
-  types: [opened, reopened]
+  push:
+    branches:
+      - main
+  pull_request:
+    types:
+      - opened
+      - reopened
+    branches:
+      - main
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -12,14 +19,21 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 20.19
+      - name: Cache node modules
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
       - name: Install dependencies
         run: npm ci
       - name: Run tests
         run: npm test
 
-  deploy:
+  build:
     needs: test
     runs-on: ubuntu-latest
+    outputs:
+      script-file: ${{ steps.publish.outputs.script-file }}
     steps:
       - name: Get code
         uses: actions/checkout@v3
@@ -27,9 +41,38 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: 20.19
+      - name: Cache node modules
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
       - name: Install dependencies
         run: npm ci
       - name: Build project
         run: npm run build
+      - name: Publish JS filename
+        id: publish
+        run: find dist/assets/*.js -type f -execdir echo 'script-file={}' >> $GITHUB_OUTPUT ';'
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: dist-files
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: dist-files
+
+      - name: Output contents
+        run: ls
+
+      - name: Output filename
+        run: echo "${{ needs.build.outputs.script-file }}"
+
       - name: Deploy
         run: echo "Deploying..."
